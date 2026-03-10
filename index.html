@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Helios worship</title>
-    <link rel="icon" type="image/x-icon" href="img/favicon.ico">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
   <style>
     body {
       display: flex;
@@ -51,12 +51,15 @@
       min-height: 40px;
     }
   </style>
+
+  <!-- CryptoJS para AES-ECB -->
+  <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js"></script>
 </head>
 <body>
   <main>
     <img src="img/helios.png" class="helios_img">
 
-    <textarea id="cipherInput" rows="1" ></textarea>
+    <textarea id="cipherInput" rows="1"></textarea>
 
     <label for="passwordInput">Password:</label>
     <input id="passwordInput" type="text" placeholder="Enter password">
@@ -67,70 +70,24 @@
   </main>
 
   <script>
-    // Helper: Base64 -> Uint8Array
-    function base64ToBytes(b64) {
-      const binary = atob(b64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      return bytes;
-    }
+    function decryptAesEcbBase64(cipherB64, password) {
+      // cipherB64: texto cifrado en Base64
+      // password: cadena que se usa como clave
+      const key = CryptoJS.enc.Utf8.parse(password);
 
-    // Helper: Uint8Array -> string (UTF-8)
-    function bytesToUtf8(bytes) {
-      return new TextDecoder().decode(bytes);
-    }
-
-    async function deriveKeyFromPassword(password, salt) {
-      const enc = new TextEncoder();
-      const keyMaterial = await crypto.subtle.importKey(
-        "raw",
-        enc.encode(password),
-        { name: "PBKDF2" },
-        false,
-        ["deriveKey"]
-      );
-
-      return crypto.subtle.deriveKey(
-        {
-          name: "PBKDF2",
-          salt: salt,
-          iterations: 100000,
-          hash: "SHA-256"
-        },
-        keyMaterial,
-        { name: "AES-CBC", length: 256 },
-        false,
-        ["decrypt"]
-      );
-    }
-
-    async function decryptAES256CBC(cipherB64, password) {
-      const data = base64ToBytes(cipherB64);
-      if (data.length < 16) {
-        throw new Error("Ciphertext too short");
-      }
-
-      // First 16 bytes: IV
-      const iv = data.slice(0, 16);
-      const ciphertext = data.slice(16);
-
-      // For simplicity, reuse IV as salt for PBKDF2 (not ideal in production)
-      const salt = iv;
-
-      const key = await deriveKeyFromPassword(password, salt);
-
-      const plainBuffer = await crypto.subtle.decrypt(
-        { name: "AES-CBC", iv: iv },
+      const decrypted = CryptoJS.AES.decrypt(
+        cipherB64,
         key,
-        ciphertext
+        {
+          mode: CryptoJS.mode.ECB,
+          padding: CryptoJS.pad.Pkcs7
+        }
       );
 
-      return bytesToUtf8(new Uint8Array(plainBuffer));
+      return decrypted.toString(CryptoJS.enc.Utf8);
     }
 
-    document.getElementById("decryptBtn").addEventListener("click", async () => {
+    document.getElementById("decryptBtn").addEventListener("click", () => {
       const cipherB64 = document.getElementById("cipherInput").value.trim();
       const password = document.getElementById("passwordInput").value;
       const resultDiv = document.getElementById("result");
@@ -142,7 +99,10 @@
       }
 
       try {
-        const plaintext = await decryptAES256CBC(cipherB64, password);
+        const plaintext = decryptAesEcbBase64(cipherB64, password);
+        if (!plaintext) {
+          throw new Error("Empty result (wrong key or bad cipher?)");
+        }
         resultDiv.textContent = plaintext;
       } catch (e) {
         resultDiv.textContent = "Decryption failed: " + e.message;
