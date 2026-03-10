@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>AES-256-CBC Decrypt</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #000;
+      color: #eee;
+      font-family: sans-serif;
+      padding: 30px;
+    }
+    label, input, button, textarea {
+      display: block;
+      width: 100%;
+      margin-bottom: 15px;
+    }
+    input, textarea {
+      background: #111;
+      border: 1px solid #555;
+      color: #eee;
+      padding: 8px;
+      box-sizing: border-box;
+    }
+    button {
+      background: #222;
+      border: 1px solid #777;
+      color: #eee;
+      padding: 10px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #333;
+    }
+    #result {
+      white-space: pre-wrap;
+      margin-top: 10px;
+      border: 1px solid #444;
+      padding: 10px;
+      min-height: 40px;
+    }
+  </style>
+</head>
+<body>
+
+  <img src="img/helios.png" class="helios_img">
+
+  <textarea id="cipherInput" rows="1" ></textarea>
+
+  <label for="passwordInput">Password:</label>
+  <input id="passwordInput" type="text" placeholder="Enter password">
+
+  <button id="decryptBtn">Decrypt</button>
+
+  <div id="result"></div>
+
+  <script>
+    // Helper: Base64 -> Uint8Array
+    function base64ToBytes(b64) {
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return bytes;
+    }
+
+    // Helper: Uint8Array -> string (UTF-8)
+    function bytesToUtf8(bytes) {
+      return new TextDecoder().decode(bytes);
+    }
+
+    async function deriveKeyFromPassword(password, salt) {
+      const enc = new TextEncoder();
+      const keyMaterial = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(password),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+      );
+
+      return crypto.subtle.deriveKey(
+        {
+          name: "PBKDF2",
+          salt: salt,
+          iterations: 100000,
+          hash: "SHA-256"
+        },
+        keyMaterial,
+        { name: "AES-CBC", length: 256 },
+        false,
+        ["decrypt"]
+      );
+    }
+
+    async function decryptAES256CBC(cipherB64, password) {
+      const data = base64ToBytes(cipherB64);
+      if (data.length < 16) {
+        throw new Error("Ciphertext too short");
+      }
+
+      // First 16 bytes: IV
+      const iv = data.slice(0, 16);
+      const ciphertext = data.slice(16);
+
+      // For simplicity, reuse IV as salt for PBKDF2 (not ideal in production)
+      const salt = iv;
+
+      const key = await deriveKeyFromPassword(password, salt);
+
+      const plainBuffer = await crypto.subtle.decrypt(
+        { name: "AES-CBC", iv: iv },
+        key,
+        ciphertext
+      );
+
+      return bytesToUtf8(new Uint8Array(plainBuffer));
+    }
+
+    document.getElementById("decryptBtn").addEventListener("click", async () => {
+      const cipherB64 = document.getElementById("cipherInput").value.trim();
+      const password = document.getElementById("passwordInput").value;
+      const resultDiv = document.getElementById("result");
+      resultDiv.textContent = "";
+
+      if (!cipherB64 || !password) {
+        resultDiv.textContent = "Please enter both cipher and password.";
+        return;
+      }
+
+      try {
+        const plaintext = await decryptAES256CBC(cipherB64, password);
+        resultDiv.textContent = plaintext;
+      } catch (e) {
+        resultDiv.textContent = "Decryption failed: " + e.message;
+      }
+    });
+  </script>
+</body>
+</html>
